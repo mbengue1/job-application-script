@@ -476,74 +476,79 @@ function extractCompany_(from, subject, body) {
   const nameMatch = from && from.match(/^"?([^"<]+?)"?\s*<[^>]+>/);
   if (nameMatch) {
     const display = nameMatch[1].trim();
-    // Try "X Careers", "X Recruiting", "X Talent"
-    const nm = display.replace(/(Careers|Recruiting|Talent|HR|Human Resources)\b/i, "").trim();
-    if (nm && !/noreply|no[-_.]?reply|info|support/i.test(nm)) return nm;
+    // Only use display name if it's clearly a company (not generic)
+    if (display && !genericDomains.test(display.toLowerCase()) && display.length > 2) {
+      // Try "X Careers", "X Recruiting", "X Talent"
+      const nm = display.replace(/(Careers|Recruiting|Talent|HR|Human Resources)\b/i, "").trim();
+      if (nm && !/noreply|no[-_.]?reply|info|support/i.test(nm) && nm.length > 2) {
+        return nm;
+      }
+    }
   }
 
-  // 2) Subject "Thank you for your application to Company"
-  let m = S.match(/Thank you for your application to ([^.\n]+)/i);
+  // 2) Subject "Thank you for your application to Company" - ONLY if very specific
+  let m = S.match(/^Thank you for your application to ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/i);
   if (m) return m[1].trim();
 
-  // 3) Subject "Application received – Company – Role"
-  m = S.match(/Application (?:received|submitted)\s*[-–—]\s*([^–—-]+)\s*[-–—]/i);
+  // 3) Subject "Application received – Company – Role" - ONLY if very specific
+  m = S.match(/^Application (?:received|submitted)\s*[-–—]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*[-–—]/i);
   if (m) return m[1].trim();
 
-  // 4) "Thanks for applying to Company"
-  m = T.match(/Thanks for applying to ([^\n–—-]+?)(?:\s*[-–—]| for\b|\.|\n)/i);
+  // 4) "Thanks for applying to Company" - ONLY if very specific
+  m = S.match(/^Thanks for applying to ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/i);
   if (m) return m[1].trim();
 
-  // 5) "Your application to Company for Role"
-  m = T.match(/application to ([^\n]+?) for [^\n.()]+/i);
+  // 5) "Your application to Company for Role" - ONLY if very specific
+  m = T.match(/^Your application to ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*) for [A-Za-z\s]+$/im);
   if (m) return m[1].trim();
 
-  // 6) "We have received your application" + company context
+  // 6) "We have received your application" + company context - ONLY if very specific
   if (B.includes("we have received your application") || B.includes("we've received your application")) {
-    // Look for company name in the email body
-    m = B.match(/(?:at|to|for|about)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
-    if (m) return m[1].trim();
-    
-    // Look for company name in signature or context
-    m = B.match(/(?:team|recruitment team|all the best)[^.\n]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i);
-    if (m) return m[1].trim();
+    // Look for company name in signature or very specific context
+    m = B.match(/(?:team|recruitment team|all the best)[^.\n]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?=[,\n]|$)/i);
+    if (m && !genericDomains.test(m[1].toLowerCase())) return m[1].trim();
   }
 
-  // 7) "Careers at Company"
-  m = B.match(/Careers at ([A-Za-z0-9 &\-\.'']+)(?=[,\n]|$)/i);
-  if (m) return m[1].trim();
+  // 7) "Careers at Company" - ONLY if very specific
+  m = B.match(/^Careers at ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?=[,\n]|$)/im);
+  if (m && !genericDomains.test(m[1].toLowerCase())) return m[1].trim();
 
-  // 8) Signature block "Sincerely,\nCompany"
-  m = B.match(/(?:Thanks|Sincerely|Regards|All the best)[^\n]*\n([A-Za-z0-9 &\-\.'']+)(?=[,\n]|$)/i);
-  if (m) return m[1].trim();
+  // 8) Signature block - ONLY if very specific
+  m = B.match(/(?:Thanks|Sincerely|Regards|All the best)[^\n]*\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?=[,\n]|$)/i);
+  if (m && !genericDomains.test(m[1].toLowerCase())) return m[1].trim();
 
-  // 9) Look for company names in subject (common patterns)
+  // 9) Look for company names in subject - ONLY if very specific patterns
   const companyPatterns = [
-    /(?:at|for|to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
-    /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:Intern|Co.?op|Coop|Technician|Engineer)/i
+    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:Intern|Co.?op|Coop|Technician|Engineer)$/i,
+    /^Application for ([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)$/i
   ];
   
   for (const pattern of companyPatterns) {
     m = S.match(pattern);
-    if (m && m[1].length > 2 && m[1].length < 50) {
+    if (m && m[1].length > 2 && m[1].length < 50 && !genericDomains.test(m[1].toLowerCase())) {
       return m[1].trim();
     }
   }
 
-  // 10) Fallback from domain if not ATS and not generic
+  // 10) Fallback from domain - ONLY if clearly not ATS and not generic
   const dm = from && from.match(/@([a-z0-9\-]+)\.[a-z.]+/i);
   const domain = dm ? dm[1].toLowerCase() : "";
   if (domain && !ats.test(domain) && !genericDomains.test(domain)) {
-    if (domain.length > 3 && !/^[a-z]+$/.test(domain)) {
+    // Only use domain if it's clearly a company name (not generic words)
+    if (domain.length > 3 && !/^[a-z]+$/.test(domain) && !/^(the|and|for|with|from|to|at|in|on|by|of|a|an)$/i.test(domain)) {
       const cleanDomain = domain.replace(/[-_]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
       return cleanDomain;
     }
   }
 
-  // 11) Fallback local part if looks brand-like (but not generic)
+  // 11) Fallback local part - ONLY if clearly a company name
   const local = (from || "").split("@")[0];
   if (local && local.length <= 20 && !genericDomains.test(local) && local.length > 3) {
-    const cleanLocal = local.replace(/[-_.]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
-    return cleanLocal;
+    // Only use if it looks like a real company name
+    if (!/^(noreply|no[-_.]?reply|info|support|admin|help|contact|hello|hi|test|demo|user|admin|guest|anonymous)$/i.test(local)) {
+      const cleanLocal = local.replace(/[-_.]/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+      return cleanLocal;
+    }
   }
 
   return "Unknown";
@@ -803,4 +808,42 @@ function verifySheetLayout() {
   logSheet.appendRow([new Date().toLocaleString(), ""]);
   logSheet.appendRow([new Date().toLocaleString(), "💡 If you see ❌ marks, update the COL constants to match your sheet layout"]);
 }
+
+// Debug function to see what emails are being found
+function debugEmailSearch() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const logSheet = ss.getSheetByName(LOG_SHEET_NAME) || ss.insertSheet(LOG_SHEET_NAME);
+  
+  logSheet.appendRow([new Date().toLocaleString(), "🔍 DEBUG: Starting email search..."]);
+  
+  // Test the search query
+  const threads = GmailApp.search(GMAIL_QUERY);
+  logSheet.appendRow([new Date().toLocaleString(), `🔍 Found ${threads.length} threads matching search query`]);
+  
+  if (threads.length === 0) {
+    logSheet.appendRow([new Date().toLocaleString(), "⚠️ No threads found - check search query"]);
+    return;
+  }
+  
+  // Log details of each thread
+  threads.forEach((thread, index) => {
+    const messages = thread.getMessages();
+    const message = messages[messages.length - 1]; // latest
+    const subject = message.getSubject() || "";
+    const from = message.getFrom() || "";
+    const threadId = thread.getId();
+    
+    logSheet.appendRow([new Date().toLocaleString(), `📧 Thread ${index + 1}: Subject="${subject}", From="${from}", ID=${threadId}`]);
+    
+    // Check if this thread has the processed label
+    const labels = thread.getLabels();
+    const processedLabel = labels.find(label => label.getName() === "Jobs/Processed");
+    if (processedLabel) {
+      logSheet.appendRow([new Date().toLocaleString(), `🏷️ Thread ${index + 1} already has "Jobs/Processed" label`]);
+    }
+  });
+  
+  logSheet.appendRow([new Date().toLocaleString(), "✅ Debug search completed"]);
+}
+
 
